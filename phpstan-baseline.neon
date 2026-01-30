@@ -1,0 +1,5 @@
+parameters:
+    ignoreErrors:
+        -
+            message: '#Call to static method getCurrentPanel\(\) on an unknown class Filament\\Facades\\Filament#'
+            path: src/DynamicFilter.php
