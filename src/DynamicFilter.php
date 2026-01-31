@@ -2,12 +2,12 @@
 
 namespace SixteenHands\FilamentDynamicFilter;
 
+use Filament\Facades\Filament;
 use Filament\Forms\Components\Select;
-use Filament\Tables\Filters\Filter;
 use Filament\Tables\Contracts\HasTable;
+use Filament\Tables\Filters\Filter;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Cache;
-use Filament\Facades\Filament;
 
 /**
  * DynamicFilter - Dynamic table filters for Filament with caching, indicators and panel access control
@@ -17,13 +17,13 @@ class DynamicFilter
     /**
      * Create a dynamic filter with caching and proper indicators
      *
-     * @param string $name Filter name (e.g., 'packhouse_filter')
-     * @param string $column Column path in dot notation (e.g., 'inwards_load.packhouse.packhouse_name')
-     * @param string $queryColumn Actual database column for query (e.g., 'packhouses.packhouse_name')
-     * @param string|null $placeholder Placeholder text
-     * @param string|null $label Custom label
-     * @param bool $searchable Whether the select is searchable
-     * @param array|null $panels Panel names this filter should be available on (null = all panels)
+     * @param  string  $name  Filter name (e.g., 'packhouse_filter')
+     * @param  string  $column  Column path in dot notation (e.g., 'inwards_load.packhouse.packhouse_name')
+     * @param  string  $queryColumn  Actual database column for query (e.g., 'packhouses.packhouse_name')
+     * @param  string|null  $placeholder  Placeholder text
+     * @param  string|null  $label  Custom label
+     * @param  bool  $searchable  Whether the select is searchable
+     * @param  array|null  $panels  Panel names this filter should be available on (null = all panels)
      */
     public static function make(
         string $name,
@@ -34,7 +34,7 @@ class DynamicFilter
         bool $searchable = false,
         ?array $panels = null
     ): Filter {
-        if (!self::hasAccess($panels)) {
+        if (! self::hasAccess($panels)) {
             return self::createHiddenFilter($name);
         }
 
@@ -70,7 +70,7 @@ class DynamicFilter
             ->indicateUsing(function (array $data) use ($column, $label): array {
                 $value = data_get($data, $column);
 
-                if (!$value) {
+                if (! $value) {
                     return [];
                 }
 
@@ -90,7 +90,7 @@ class DynamicFilter
         bool $searchable = false,
         ?array $panels = null
     ): Filter {
-        if (!self::hasAccess($panels)) {
+        if (! self::hasAccess($panels)) {
             return self::createHiddenFilter($name);
         }
 
@@ -129,11 +129,11 @@ class DynamicFilter
             ->indicateUsing(function (array $data) use ($column, $label): array {
                 $values = data_get($data, $column);
 
-                if (!$values || !is_array($values)) {
+                if (! $values || ! is_array($values)) {
                     return [];
                 }
 
-                return ["{$label}: ".implode(', ', $values)];
+                return ["{$label}: " . implode(', ', $values)];
             });
     }
 
@@ -151,7 +151,7 @@ class DynamicFilter
         ?array $panels = null,
         bool $multiple = false
     ): Filter {
-        if (!self::hasAccess($panels)) {
+        if (! self::hasAccess($panels)) {
             return self::createHiddenFilter($name);
         }
 
@@ -190,12 +190,12 @@ class DynamicFilter
             ->indicateUsing(function (array $data) use ($column, $label): array {
                 $value = data_get($data, $column);
 
-                if (!$value) {
+                if (! $value) {
                     return [];
                 }
 
                 if (is_array($value)) {
-                    return ["{$label}: ".implode(', ', $value)];
+                    return ["{$label}: " . implode(', ', $value)];
                 }
 
                 return ["{$label}: {$value}"];
@@ -209,10 +209,10 @@ class DynamicFilter
     {
         $table = $livewire->getTable();
         $query = $table->getQuery();
-        $queryHash = md5($query?->toSql().serialize($query?->getBindings()));
+        $queryHash = md5($query?->toSql() . serialize($query?->getBindings()));
 
-        $filterCacheKey = 'dynamic_filter_'.auth()->id().'_'.$queryHash.'_'.str_replace('.', '_', $column);
-        $resultsCacheKey = 'dynamic_filter_'.auth()->id().'_'.$queryHash;
+        $filterCacheKey = 'dynamic_filter_' . auth()->id() . '_' . $queryHash . '_' . str_replace('.', '_', $column);
+        $resultsCacheKey = 'dynamic_filter_' . auth()->id() . '_' . $queryHash;
 
         return Cache::remember($filterCacheKey, 300, function () use ($query, $column, $resultsCacheKey) {
             try {
@@ -238,7 +238,7 @@ class DynamicFilter
                     })
                     ->toArray();
             } catch (\Exception $e) {
-                \Log::error("DynamicFilter error for column {$column}: ".$e->getMessage());
+                \Log::error("DynamicFilter error for column {$column}: " . $e->getMessage());
 
                 return [];
             }
@@ -259,7 +259,7 @@ class DynamicFilter
 
             return $currentPanel && in_array($currentPanel, $panels);
         } catch (\Exception $e) {
-            \Log::warning('Could not determine current Filament panel: '.$e->getMessage());
+            \Log::warning('Could not determine current Filament panel: ' . $e->getMessage());
 
             return true;
         }
@@ -281,7 +281,7 @@ class DynamicFilter
      */
     public static function clearCache(?int $userId = null): void
     {
-        $pattern = 'dynamic_filter_'.($userId ?? auth()->id()).'_*';
+        $pattern = 'dynamic_filter_' . ($userId ?? auth()->id()) . '_*';
         // Implementation depends on cache driver
         // For Redis: Cache::forget() with pattern matching
         // For file/database: would need custom logic
