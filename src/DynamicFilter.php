@@ -3,8 +3,8 @@
 namespace SixteenHands\FilamentDynamicFilter;
 
 use Filament\Forms\Components\Select;
-use Filament\Tables\Filters\Filter;
 use Filament\Tables\Contracts\HasTable;
+use Filament\Tables\Filters\Filter;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Cache;
 
@@ -16,15 +16,15 @@ class DynamicFilter
     /**
      * Create a dynamic filter with caching and proper indicators
      *
-     * @param string $name Filter name (e.g., 'packhouse_filter')
-     * @param string $column Column path in dot notation (e.g., 'inwards_load.packhouse.packhouse_name')
-     * @param string $queryColumn Actual database column for query (e.g., 'packhouses.packhouse_name')
-     * @param string|null $placeholder Placeholder text
-     * @param string|null $label Custom label
-     * @param bool $searchable Whether the select is searchable
-     * @param array|null $panels Panel names this filter should be available on (null = all panels)
-     * @param array|null $optionsMap Map of raw values to display labels
-     * @param callable|null $formatOption Formatter callback: fn($value): array|string|null
+     * @param  string  $name  Filter name (e.g., 'packhouse_filter')
+     * @param  string  $column  Column path in dot notation (e.g., 'inwards_load.packhouse.packhouse_name')
+     * @param  string  $queryColumn  Actual database column for query (e.g., 'packhouses.packhouse_name')
+     * @param  string|null  $placeholder  Placeholder text
+     * @param  string|null  $label  Custom label
+     * @param  bool  $searchable  Whether the select is searchable
+     * @param  array|null  $panels  Panel names this filter should be available on (null = all panels)
+     * @param  array|null  $optionsMap  Map of raw values to display labels
+     * @param  callable|null  $formatOption  Formatter callback: fn($value): array|string|null
      */
     public static function make(
         string $name,
@@ -37,7 +37,7 @@ class DynamicFilter
         ?array $optionsMap = null,
         ?callable $formatOption = null
     ): Filter {
-        if (!self::hasAccess($panels)) {
+        if (! self::hasAccess($panels)) {
             return self::createHiddenFilter($name);
         }
 
@@ -58,7 +58,7 @@ class DynamicFilter
             ->query(function (Builder $query, array $data) use ($column, $queryColumn): Builder {
                 $value = data_get($data, $column);
 
-                if (!self::hasValue($value)) {
+                if (! self::hasValue($value)) {
                     return $query;
                 }
 
@@ -73,7 +73,7 @@ class DynamicFilter
             ->indicateUsing(function (array $data) use ($column, $label, $optionsMap, $formatOption): array {
                 $value = data_get($data, $column);
 
-                if (!self::hasValue($value)) {
+                if (! self::hasValue($value)) {
                     return [];
                 }
 
@@ -118,7 +118,7 @@ class DynamicFilter
             ->query(function (Builder $query, array $data) use ($column, $queryColumn): Builder {
                 $value = data_get($data, $column);
 
-                if (!is_array($value)) {
+                if (! is_array($value)) {
                     return $query;
                 }
 
@@ -157,7 +157,7 @@ class DynamicFilter
                     $values
                 );
 
-                return ["{$label}: ".implode(', ', $displayValues)];
+                return ["{$label}: " . implode(', ', $displayValues)];
             });
     }
 
@@ -199,7 +199,7 @@ class DynamicFilter
             ->query(function (Builder $query, array $data) use ($column, $relationship, $relationshipColumn): Builder {
                 $value = data_get($data, $column);
 
-                if (!self::hasValue($value)) {
+                if (! self::hasValue($value)) {
                     return $query;
                 }
 
@@ -228,7 +228,7 @@ class DynamicFilter
             ->indicateUsing(function (array $data) use ($column, $label, $optionsMap, $formatOption): array {
                 $value = data_get($data, $column);
 
-                if (!self::hasValue($value)) {
+                if (! self::hasValue($value)) {
                     return [];
                 }
 
@@ -243,7 +243,7 @@ class DynamicFilter
                         $values
                     );
 
-                    return ["{$label}: ".implode(', ', $displayValues)];
+                    return ["{$label}: " . implode(', ', $displayValues)];
                 }
 
                 $displayValue = self::getOptionLabel($value, $optionsMap, $formatOption);
@@ -260,8 +260,7 @@ class DynamicFilter
         string $column,
         ?array $optionsMap = null,
         ?callable $formatOption = null
-    ): array
-    {
+    ): array {
         $table = $livewire->getTable();
         $query = $table->getQuery();
         $queryHash = md5($query?->toSql() . serialize($query?->getBindings()));
@@ -284,7 +283,7 @@ class DynamicFilter
                     })
                     ->toArray();
             } catch (\Exception $e) {
-                \Log::error("DynamicFilter error for column {$column}: ".$e->getMessage());
+                \Log::error("DynamicFilter error for column {$column}: " . $e->getMessage());
 
                 return [];
             }
@@ -332,7 +331,7 @@ class DynamicFilter
             return [$value->value => $value->getLabel()];
         }
 
-        if ($optionsMap !== null && !is_object($value) && !is_array($value) && array_key_exists($value, $optionsMap)) {
+        if ($optionsMap !== null && ! is_object($value) && ! is_array($value) && array_key_exists($value, $optionsMap)) {
             return [$value => $optionsMap[$value]];
         }
 
@@ -406,7 +405,7 @@ class DynamicFilter
     protected static function getCurrentPanelId(): ?string
     {
         $filamentFacade = 'Filament\\Facades\\Filament';
-        if (!class_exists($filamentFacade)) {
+        if (! class_exists($filamentFacade)) {
             return null;
         }
 
