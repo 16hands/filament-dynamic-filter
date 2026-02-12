@@ -52,6 +52,7 @@ class DynamicFilter
                     ->options(function (HasTable $livewire) use ($column, $optionsMap, $formatOption) {
                         return self::getCachedOptions($livewire, $column, $optionsMap, $formatOption);
                     })
+                    ->selectablePlaceholder(false)
                     ->searchable($searchable)
                     ->placeholder($placeholder),
             ])
@@ -193,6 +194,7 @@ class DynamicFilter
                     })
                     ->searchable($searchable)
                     ->multiple($multiple)
+                    ->selectablePlaceholder($multiple)
                     ->placeholder($placeholder),
             ])
             ->query(function (Builder $query, array $data) use ($column, $relationship, $relationshipColumn): Builder {
