@@ -142,4 +142,4 @@ MIT
 
 ## Credits
 
-Made by [16Hands](https://16hands.co.nz)
+[16Hands](https://16hands.co.nz)
