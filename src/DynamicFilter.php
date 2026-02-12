@@ -2,6 +2,7 @@
 
 namespace SixteenHands\FilamentDynamicFilter;
 
+use Filament\Facades\Filament;
 use Filament\Forms\Components\Select;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Contracts\HasTable;
@@ -96,7 +97,7 @@ class DynamicFilter
         ?array $optionsMap = null,
         ?callable $formatOption = null
     ): Filter {
-        if (!self::hasAccess($panels)) {
+        if (! self::hasAccess($panels)) {
             return self::createHiddenFilter($name);
         }
 
@@ -142,7 +143,7 @@ class DynamicFilter
             ->indicateUsing(function (array $data) use ($column, $label, $optionsMap, $formatOption): array {
                 $values = data_get($data, $column);
 
-                if (!$values || !is_array($values)) {
+                if (! $values || ! is_array($values)) {
                     return [];
                 }
 
@@ -176,7 +177,7 @@ class DynamicFilter
         ?array $optionsMap = null,
         ?callable $formatOption = null
     ): Filter {
-        if (!self::hasAccess($panels)) {
+        if (! self::hasAccess($panels)) {
             return self::createHiddenFilter($name);
         }
 
@@ -262,10 +263,10 @@ class DynamicFilter
     {
         $table = $livewire->getTable();
         $query = $table->getQuery();
-        $queryHash = md5($query?->toSql().serialize($query?->getBindings()));
+        $queryHash = md5($query?->toSql() . serialize($query?->getBindings()));
 
-        $filterCacheKey = 'dynamic_filter_'.auth()->id().'_'.$queryHash.'_'.str_replace('.', '_', $column);
-        $resultsCacheKey = 'dynamic_filter_'.auth()->id().'_'.$queryHash;
+        $filterCacheKey = 'dynamic_filter_' . auth()->id() . '_' . $queryHash . '_' . str_replace('.', '_', $column);
+        $resultsCacheKey = 'dynamic_filter_' . auth()->id() . '_' . $queryHash;
 
         return Cache::remember($filterCacheKey, 300, function () use ($query, $column, $resultsCacheKey, $optionsMap, $formatOption) {
             try {
@@ -411,7 +412,7 @@ class DynamicFilter
         try {
             return $filamentFacade::getCurrentPanel()?->getId();
         } catch (\Exception $e) {
-            \Log::warning('Could not determine current Filament panel: '.$e->getMessage());
+            \Log::warning('Could not determine current Filament panel: ' . $e->getMessage());
 
             return null;
         }
@@ -433,7 +434,7 @@ class DynamicFilter
      */
     public static function clearCache(?int $userId = null): void
     {
-        $pattern = 'dynamic_filter_'.($userId ?? auth()->id()).'_*';
+        $pattern = 'dynamic_filter_' . ($userId ?? auth()->id()) . '_*';
         // Implementation depends on cache driver
         // For Redis: Cache::forget() with pattern matching
         // For file/database: would need custom logic
