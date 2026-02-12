@@ -48,6 +48,17 @@ public function table(Table $table): Table
                 label: 'Grade',
                 searchable: true
             ),
+
+            // With custom option labels (booleans, enums, etc.)
+            DynamicFilter::make(
+                name: 'active_filter',
+                column: 'is_active',
+                queryColumn: 'is_active',
+                optionsMap: [
+                    1 => 'Active',
+                    0 => 'Inactive',
+                ],
+            ),
         ]);
 }
 ```
@@ -109,6 +120,8 @@ Handles Carbon dates and PHP enums automatically — dates display as `d/m/Y` bu
 | `label` | ?string | Filter label |
 | `searchable` | bool | Enable search in select (default: false) |
 | `panels` | ?array | Restrict to specific panel IDs |
+| `optionsMap` | ?array | Map of raw values to display labels |
+| `formatOption` | ?callable | Formatter callback: `fn ($value): array|string|null` |
 
 **`DynamicFilter::relationship()`** adds:
 

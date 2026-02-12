@@ -7,7 +7,6 @@ use Filament\Tables\Filters\Filter;
 use Filament\Tables\Contracts\HasTable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Cache;
-use Filament\Facades\Filament;
 
 /**
  * DynamicFilter - Dynamic table filters for Filament with caching, indicators and panel access control
@@ -24,6 +23,8 @@ class DynamicFilter
      * @param string|null $label Custom label
      * @param bool $searchable Whether the select is searchable
      * @param array|null $panels Panel names this filter should be available on (null = all panels)
+     * @param array|null $optionsMap Map of raw values to display labels
+     * @param callable|null $formatOption Formatter callback: fn($value): array|string|null
      */
     public static function make(
         string $name,
@@ -32,7 +33,9 @@ class DynamicFilter
         ?string $placeholder = null,
         ?string $label = null,
         bool $searchable = false,
-        ?array $panels = null
+        ?array $panels = null,
+        ?array $optionsMap = null,
+        ?callable $formatOption = null
     ): Filter {
         if (!self::hasAccess($panels)) {
             return self::createHiddenFilter($name);
@@ -45,8 +48,8 @@ class DynamicFilter
             ->schema([
                 Select::make($column)
                     ->label($label)
-                    ->options(function (HasTable $livewire) use ($column) {
-                        return self::getCachedOptions($livewire, $column);
+                    ->options(function (HasTable $livewire) use ($column, $optionsMap, $formatOption) {
+                        return self::getCachedOptions($livewire, $column, $optionsMap, $formatOption);
                     })
                     ->searchable($searchable)
                     ->placeholder($placeholder),
@@ -54,27 +57,28 @@ class DynamicFilter
             ->query(function (Builder $query, array $data) use ($column, $queryColumn): Builder {
                 $value = data_get($data, $column);
 
-                return $query->when(
-                    $value,
-                    function (Builder $query) use ($queryColumn, $value) {
-                        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
-                            $query->whereDate($queryColumn, $value);
-                        } else {
-                            $query->where($queryColumn, $value);
-                        }
+                if (!self::hasValue($value)) {
+                    return $query;
+                }
 
-                        return $query;
-                    }
-                );
+                if (preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $value)) {
+                    $query->whereDate($queryColumn, $value);
+                } else {
+                    $query->where($queryColumn, $value);
+                }
+
+                return $query;
             })
-            ->indicateUsing(function (array $data) use ($column, $label): array {
+            ->indicateUsing(function (array $data) use ($column, $label, $optionsMap, $formatOption): array {
                 $value = data_get($data, $column);
 
-                if (!$value) {
+                if (!self::hasValue($value)) {
                     return [];
                 }
 
-                return ["{$label}: {$value}"];
+                $displayValue = self::getOptionLabel($value, $optionsMap, $formatOption);
+
+                return ["{$label}: {$displayValue}"];
             });
     }
 
@@ -88,7 +92,9 @@ class DynamicFilter
         ?string $placeholder = null,
         ?string $label = null,
         bool $searchable = false,
-        ?array $panels = null
+        ?array $panels = null,
+        ?array $optionsMap = null,
+        ?callable $formatOption = null
     ): Filter {
         if (!self::hasAccess($panels)) {
             return self::createHiddenFilter($name);
@@ -101,8 +107,8 @@ class DynamicFilter
             ->schema([
                 Select::make($column)
                     ->label($label)
-                    ->options(function (HasTable $livewire) use ($column) {
-                        return self::getCachedOptions($livewire, $column);
+                    ->options(function (HasTable $livewire) use ($column, $optionsMap, $formatOption) {
+                        return self::getCachedOptions($livewire, $column, $optionsMap, $formatOption);
                     })
                     ->multiple()
                     ->searchable($searchable)
@@ -111,29 +117,46 @@ class DynamicFilter
             ->query(function (Builder $query, array $data) use ($column, $queryColumn): Builder {
                 $value = data_get($data, $column);
 
-                return $query->when(
-                    $value && is_array($value),
-                    function (Builder $query) use ($queryColumn, $value) {
-                        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', collect($value)->first())) {
-                            foreach ($value as $val) {
-                                $query->orWhereDate($queryColumn, $val);
-                            }
-                        } else {
-                            $query->whereIn($queryColumn, $value);
-                        }
+                if (!is_array($value)) {
+                    return $query;
+                }
 
-                        return $query;
+                $values = self::normalizeValuesArray($value);
+                if ($values === []) {
+                    return $query;
+                }
+
+                $firstValue = $values[0] ?? null;
+                $firstValueString = is_scalar($firstValue) ? (string) $firstValue : null;
+
+                if ($firstValueString !== null && preg_match('/^\d{4}-\d{2}-\d{2}$/', $firstValueString)) {
+                    foreach ($values as $val) {
+                        $query->orWhereDate($queryColumn, $val);
                     }
-                );
+                } else {
+                    $query->whereIn($queryColumn, $values);
+                }
+
+                return $query;
             })
-            ->indicateUsing(function (array $data) use ($column, $label): array {
+            ->indicateUsing(function (array $data) use ($column, $label, $optionsMap, $formatOption): array {
                 $values = data_get($data, $column);
 
                 if (!$values || !is_array($values)) {
                     return [];
                 }
 
-                return ["{$label}: ".implode(', ', $values)];
+                $values = self::normalizeValuesArray($values);
+                if ($values === []) {
+                    return [];
+                }
+
+                $displayValues = array_map(
+                    fn ($value) => self::getOptionLabel($value, $optionsMap, $formatOption),
+                    $values
+                );
+
+                return ["{$label}: ".implode(', ', $displayValues)];
             });
     }
 
@@ -149,7 +172,9 @@ class DynamicFilter
         ?string $label = null,
         bool $searchable = false,
         ?array $panels = null,
-        bool $multiple = false
+        bool $multiple = false,
+        ?array $optionsMap = null,
+        ?callable $formatOption = null
     ): Filter {
         if (!self::hasAccess($panels)) {
             return self::createHiddenFilter($name);
@@ -162,8 +187,8 @@ class DynamicFilter
             ->schema([
                 Select::make($column)
                     ->label($label)
-                    ->options(function (HasTable $livewire) use ($column) {
-                        return self::getCachedOptions($livewire, $column);
+                    ->options(function (HasTable $livewire) use ($column, $optionsMap, $formatOption) {
+                        return self::getCachedOptions($livewire, $column, $optionsMap, $formatOption);
                     })
                     ->searchable($searchable)
                     ->multiple($multiple)
@@ -172,40 +197,68 @@ class DynamicFilter
             ->query(function (Builder $query, array $data) use ($column, $relationship, $relationshipColumn): Builder {
                 $value = data_get($data, $column);
 
-                return $query->when(
-                    $value,
-                    fn (Builder $query) => $query->whereHas($relationship, function ($q) use ($relationshipColumn, $value) {
-                        if (is_array($value)) {
-                            $q->whereIn($relationshipColumn, $value);
-                        } elseif (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
-                            $q->whereDate($relationshipColumn, $value);
-                        } else {
-                            $q->where($relationshipColumn, $value);
-                        }
+                if (!self::hasValue($value)) {
+                    return $query;
+                }
 
-                        return $q;
-                    })
-                );
+                if (is_array($value)) {
+                    $values = self::normalizeValuesArray($value);
+                    if ($values === []) {
+                        return $query;
+                    }
+                }
+
+                return $query->whereHas($relationship, function ($q) use ($relationshipColumn, $value) {
+                    if (is_array($value)) {
+                        $values = self::normalizeValuesArray($value);
+                        if ($values !== []) {
+                            $q->whereIn($relationshipColumn, $values);
+                        }
+                    } elseif (preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $value)) {
+                        $q->whereDate($relationshipColumn, $value);
+                    } else {
+                        $q->where($relationshipColumn, $value);
+                    }
+
+                    return $q;
+                });
             })
-            ->indicateUsing(function (array $data) use ($column, $label): array {
+            ->indicateUsing(function (array $data) use ($column, $label, $optionsMap, $formatOption): array {
                 $value = data_get($data, $column);
 
-                if (!$value) {
+                if (!self::hasValue($value)) {
                     return [];
                 }
 
                 if (is_array($value)) {
-                    return ["{$label}: ".implode(', ', $value)];
+                    $values = self::normalizeValuesArray($value);
+                    if ($values === []) {
+                        return [];
+                    }
+
+                    $displayValues = array_map(
+                        fn ($value) => self::getOptionLabel($value, $optionsMap, $formatOption),
+                        $values
+                    );
+
+                    return ["{$label}: ".implode(', ', $displayValues)];
                 }
 
-                return ["{$label}: {$value}"];
+                $displayValue = self::getOptionLabel($value, $optionsMap, $formatOption);
+
+                return ["{$label}: {$displayValue}"];
             });
     }
 
     /**
      * Get cached options for a column with query-based cache key
      */
-    protected static function getCachedOptions(HasTable $livewire, string $column): array
+    protected static function getCachedOptions(
+        HasTable $livewire,
+        string $column,
+        ?array $optionsMap = null,
+        ?callable $formatOption = null
+    ): array
     {
         $table = $livewire->getTable();
         $query = $table->getQuery();
@@ -214,7 +267,7 @@ class DynamicFilter
         $filterCacheKey = 'dynamic_filter_'.auth()->id().'_'.$queryHash.'_'.str_replace('.', '_', $column);
         $resultsCacheKey = 'dynamic_filter_'.auth()->id().'_'.$queryHash;
 
-        return Cache::remember($filterCacheKey, 300, function () use ($query, $column, $resultsCacheKey) {
+        return Cache::remember($filterCacheKey, 300, function () use ($query, $column, $resultsCacheKey, $optionsMap, $formatOption) {
             try {
                 $allRecords = Cache::remember($resultsCacheKey, 300, function () use ($query) {
                     return $query->get();
@@ -222,19 +275,10 @@ class DynamicFilter
 
                 return $allRecords->pluck($column)
                     ->unique()
-                    ->filter()
+                    ->filter(fn ($value) => self::hasValue($value))
                     ->sort()
-                    ->mapWithKeys(function ($value) {
-                        // Handle date objects
-                        if (is_object($value) && $value instanceof \Illuminate\Support\Carbon) {
-                            return [$value->format('Y-m-d') => $value->format('d/m/Y')];
-                        }
-                        // Handle enum objects
-                        if (is_object($value) && enum_exists(get_class($value))) {
-                            return [$value->value => $value->getLabel()];
-                        }
-
-                        return [$value => $value];
+                    ->mapWithKeys(function ($value) use ($optionsMap, $formatOption) {
+                        return self::formatOption($value, $optionsMap, $formatOption);
                     })
                     ->toArray();
             } catch (\Exception $e) {
@@ -246,6 +290,98 @@ class DynamicFilter
     }
 
     /**
+     * Determine whether a value should be considered "set" for filtering.
+     */
+    protected static function hasValue(mixed $value): bool
+    {
+        return $value !== null && $value !== '';
+    }
+
+    /**
+     * Normalize array values while keeping false/zero.
+     */
+    protected static function normalizeValuesArray(array $values): array
+    {
+        return array_values(array_filter($values, fn ($value) => self::hasValue($value)));
+    }
+
+    /**
+     * Format a raw option value into a [value => label] pair.
+     */
+    protected static function formatOption(
+        mixed $value,
+        ?array $optionsMap = null,
+        ?callable $formatOption = null
+    ): array {
+        if ($formatOption) {
+            $formatted = $formatOption($value);
+            if ($formatted !== null) {
+                return self::normalizeFormattedOption($value, $formatted);
+            }
+        }
+
+        // Handle date objects
+        if (is_object($value) && $value instanceof \Illuminate\Support\Carbon) {
+            return [$value->format('Y-m-d') => $value->format('d/m/Y')];
+        }
+
+        // Handle enum objects
+        if (is_object($value) && enum_exists(get_class($value))) {
+            return [$value->value => $value->getLabel()];
+        }
+
+        if ($optionsMap !== null && !is_object($value) && !is_array($value) && array_key_exists($value, $optionsMap)) {
+            return [$value => $optionsMap[$value]];
+        }
+
+        if (is_bool($value)) {
+            return [$value ? 1 : 0 => $value ? 'True' : 'False'];
+        }
+
+        return [$value => $value];
+    }
+
+    /**
+     * Extract a display label for indicators.
+     */
+    protected static function getOptionLabel(
+        mixed $value,
+        ?array $optionsMap = null,
+        ?callable $formatOption = null
+    ): string {
+        $formatted = self::formatOption($value, $optionsMap, $formatOption);
+        $label = reset($formatted);
+
+        if (is_bool($label)) {
+            return $label ? '1' : '0';
+        }
+
+        if (is_object($label) && method_exists($label, '__toString')) {
+            return (string) $label;
+        }
+
+        if (is_scalar($label) || $label === null) {
+            return (string) $label;
+        }
+
+        $encoded = json_encode($label);
+
+        return $encoded !== false ? $encoded : '';
+    }
+
+    /**
+     * Normalize formatter output into a [value => label] pair.
+     */
+    protected static function normalizeFormattedOption(mixed $value, mixed $formatted): array
+    {
+        if (is_array($formatted)) {
+            return $formatted;
+        }
+
+        return [$value => $formatted];
+    }
+
+    /**
      * Check if current panel has access to this filter
      */
     protected static function hasAccess(?array $panels): bool
@@ -254,14 +390,30 @@ class DynamicFilter
             return true;
         }
 
-        try {
-            $currentPanel = Filament::getCurrentPanel()?->getId();
+        $currentPanel = self::getCurrentPanelId();
+        if ($currentPanel === null) {
+            return true;
+        }
 
-            return $currentPanel && in_array($currentPanel, $panels);
+        return in_array($currentPanel, $panels, true);
+    }
+
+    /**
+     * Best-effort lookup for current Filament panel id (optional dependency).
+     */
+    protected static function getCurrentPanelId(): ?string
+    {
+        $filamentFacade = 'Filament\\Facades\\Filament';
+        if (!class_exists($filamentFacade)) {
+            return null;
+        }
+
+        try {
+            return $filamentFacade::getCurrentPanel()?->getId();
         } catch (\Exception $e) {
             \Log::warning('Could not determine current Filament panel: '.$e->getMessage());
 
-            return true;
+            return null;
         }
     }
 
