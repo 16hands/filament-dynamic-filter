@@ -2,7 +2,6 @@
 
 namespace SixteenHands\FilamentDynamicFilter;
 
-use Filament\Facades\Filament;
 use Filament\Forms\Components\Select;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Contracts\HasTable;
