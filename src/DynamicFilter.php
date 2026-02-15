@@ -20,6 +20,7 @@ class DynamicFilter
      * @var array<int, string>
      */
     protected static array $queryHashCache = [];
+
     /**
      * Create a dynamic filter with caching and proper indicators
      *
