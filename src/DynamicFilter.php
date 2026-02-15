@@ -6,6 +6,7 @@ use Filament\Forms\Components\Select;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Filters\Filter;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 
 /**
@@ -13,6 +14,12 @@ use Illuminate\Support\Facades\Cache;
  */
 class DynamicFilter
 {
+    /**
+     * Memoized query hash cache per request.
+     *
+     * @var array<int, string>
+     */
+    protected static array $queryHashCache = [];
     /**
      * Create a dynamic filter with caching and proper indicators
      *
@@ -25,6 +32,7 @@ class DynamicFilter
      * @param  array|null  $panels  Panel names this filter should be available on (null = all panels)
      * @param  array|null  $optionsMap  Map of raw values to display labels
      * @param  callable|null  $formatOption  Formatter callback: fn($value): array|string|null
+     * @param  callable|null  $optionsQuery  Callback to provide a Builder or Collection for options
      */
     public static function make(
         string $name,
@@ -35,7 +43,8 @@ class DynamicFilter
         bool $searchable = false,
         ?array $panels = null,
         ?array $optionsMap = null,
-        ?callable $formatOption = null
+        ?callable $formatOption = null,
+        ?callable $optionsQuery = null
     ): Filter {
         if (! self::hasAccess($panels)) {
             return self::createHiddenFilter($name);
@@ -48,8 +57,8 @@ class DynamicFilter
             ->schema([
                 Select::make($column)
                     ->label($label)
-                    ->options(function (HasTable $livewire) use ($column, $optionsMap, $formatOption) {
-                        return self::getCachedOptions($livewire, $column, $optionsMap, $formatOption);
+                    ->options(function (HasTable $livewire) use ($column, $queryColumn, $optionsMap, $formatOption, $optionsQuery) {
+                        return self::getCachedOptions($livewire, $column, $queryColumn, $optionsMap, $formatOption, $optionsQuery);
                     })
                     ->selectablePlaceholder(false)
                     ->searchable($searchable)
@@ -95,7 +104,8 @@ class DynamicFilter
         bool $searchable = false,
         ?array $panels = null,
         ?array $optionsMap = null,
-        ?callable $formatOption = null
+        ?callable $formatOption = null,
+        ?callable $optionsQuery = null
     ): Filter {
         if (! self::hasAccess($panels)) {
             return self::createHiddenFilter($name);
@@ -108,8 +118,8 @@ class DynamicFilter
             ->schema([
                 Select::make($column)
                     ->label($label)
-                    ->options(function (HasTable $livewire) use ($column, $optionsMap, $formatOption) {
-                        return self::getCachedOptions($livewire, $column, $optionsMap, $formatOption);
+                    ->options(function (HasTable $livewire) use ($column, $queryColumn, $optionsMap, $formatOption, $optionsQuery) {
+                        return self::getCachedOptions($livewire, $column, $queryColumn, $optionsMap, $formatOption, $optionsQuery);
                     })
                     ->multiple()
                     ->searchable($searchable)
@@ -175,7 +185,8 @@ class DynamicFilter
         ?array $panels = null,
         bool $multiple = false,
         ?array $optionsMap = null,
-        ?callable $formatOption = null
+        ?callable $formatOption = null,
+        ?callable $optionsQuery = null
     ): Filter {
         if (! self::hasAccess($panels)) {
             return self::createHiddenFilter($name);
@@ -188,8 +199,8 @@ class DynamicFilter
             ->schema([
                 Select::make($column)
                     ->label($label)
-                    ->options(function (HasTable $livewire) use ($column, $optionsMap, $formatOption) {
-                        return self::getCachedOptions($livewire, $column, $optionsMap, $formatOption);
+                    ->options(function (HasTable $livewire) use ($column, $relationshipColumn, $optionsMap, $formatOption, $optionsQuery) {
+                        return self::getCachedOptions($livewire, $column, $relationshipColumn, $optionsMap, $formatOption, $optionsQuery);
                     })
                     ->searchable($searchable)
                     ->multiple($multiple)
@@ -258,36 +269,185 @@ class DynamicFilter
     protected static function getCachedOptions(
         HasTable $livewire,
         string $column,
+        string $queryColumn,
         ?array $optionsMap = null,
-        ?callable $formatOption = null
+        ?callable $formatOption = null,
+        ?callable $optionsQuery = null
     ): array {
         $table = $livewire->getTable();
         $query = $table->getQuery();
-        $queryHash = md5($query?->toSql() . serialize($query?->getBindings()));
+        $optionsSource = $query;
 
-        $filterCacheKey = 'dynamic_filter_' . auth()->id() . '_' . $queryHash . '_' . str_replace('.', '_', $column);
-        $resultsCacheKey = 'dynamic_filter_' . auth()->id() . '_' . $queryHash;
+        if ($optionsQuery) {
+            $optionsSource = $optionsQuery($livewire, $query);
+        }
 
-        return Cache::remember($filterCacheKey, 300, function () use ($query, $column, $resultsCacheKey, $optionsMap, $formatOption) {
-            try {
-                $allRecords = Cache::remember($resultsCacheKey, 300, function () use ($query) {
-                    return $query->get();
-                });
+        $cacheTtl = config('filament-dynamic-filter.cache_ttl', 300);
+        $maxOptions = config('filament-dynamic-filter.max_options');
+        $maxOptions = is_numeric($maxOptions) ? (int) $maxOptions : null;
+        $cacheScope = config('filament-dynamic-filter.cache_scope', 'user');
+        $cacheKey = null;
 
-                return $allRecords->pluck($column)
-                    ->unique()
-                    ->filter(fn ($value) => self::hasValue($value))
-                    ->sort()
-                    ->mapWithKeys(function ($value) use ($optionsMap, $formatOption) {
-                        return self::formatOption($value, $optionsMap, $formatOption);
-                    })
-                    ->toArray();
-            } catch (\Exception $e) {
-                \Log::error("DynamicFilter error for column {$column}: " . $e->getMessage());
+        if ($cacheTtl !== null && is_numeric($cacheTtl) && (int) $cacheTtl > 0) {
+            $hashSource = $optionsSource instanceof Builder ? $optionsSource : $query;
+            $queryHash = self::getQueryHash($hashSource);
+            $cacheKey = self::buildCacheKey($cacheScope, $queryHash, $column);
+        }
 
-                return [];
+        if ($cacheKey !== null) {
+            $cached = Cache::get($cacheKey);
+            if (is_array($cached)) {
+                return $cached;
             }
-        });
+        }
+
+        try {
+            $values = self::resolveOptionValues($optionsSource, $query, $column, $queryColumn, $maxOptions);
+
+            $options = $values
+                ->filter(fn ($value) => self::hasValue($value))
+                ->unique()
+                ->sort()
+                ->when(is_int($maxOptions) && $maxOptions > 0, fn (Collection $collection) => $collection->take($maxOptions))
+                ->mapWithKeys(function ($value) use ($optionsMap, $formatOption) {
+                    return self::formatOption($value, $optionsMap, $formatOption);
+                })
+                ->toArray();
+
+            if ($cacheKey !== null) {
+                Cache::put($cacheKey, $options, (int) $cacheTtl);
+            }
+
+            return $options;
+        } catch (\Throwable $e) {
+            \Log::error("DynamicFilter error for column {$column}: " . $e->getMessage());
+
+            return [];
+        }
+    }
+
+    /**
+     * Resolve option values using a Builder or Collection source.
+     */
+    protected static function resolveOptionValues(
+        mixed $optionsSource,
+        Builder $fallbackQuery,
+        string $column,
+        string $queryColumn,
+        mixed $maxOptions
+    ): Collection {
+        if ($optionsSource instanceof Builder) {
+            try {
+                return self::pluckDistinctValues($optionsSource, $queryColumn, $maxOptions);
+            } catch (\Throwable $e) {
+                return self::pluckFromCollection($fallbackQuery->get(), $column);
+            }
+        }
+
+        if ($optionsSource instanceof Collection) {
+            return self::pluckFromCollection($optionsSource, $column);
+        }
+
+        if (is_array($optionsSource)) {
+            return collect($optionsSource);
+        }
+
+        return self::pluckFromCollection($fallbackQuery->get(), $column);
+    }
+
+    /**
+     * Pluck distinct values from a query builder for a specific column.
+     */
+    protected static function pluckDistinctValues(Builder $query, string $queryColumn, mixed $maxOptions): Collection
+    {
+        $distinctQuery = clone $query;
+        $distinctQuery->reorder();
+        $distinctQuery->select($queryColumn)
+            ->distinct()
+            ->orderBy($queryColumn);
+
+        if (is_int($maxOptions) && $maxOptions > 0) {
+            $distinctQuery->limit($maxOptions);
+        }
+
+        return $distinctQuery->toBase()->pluck($queryColumn);
+    }
+
+    /**
+     * Pluck values from a collection or return as-is if already scalar values.
+     */
+    protected static function pluckFromCollection(Collection $collection, string $column): Collection
+    {
+        if ($collection->isEmpty()) {
+            return collect();
+        }
+
+        $first = $collection->first();
+        if (is_array($first) || is_object($first)) {
+            return $collection->pluck($column);
+        }
+
+        return $collection;
+    }
+
+    /**
+     * Build a cache key with the configured scope.
+     */
+    protected static function buildCacheKey(string $cacheScope, string $queryHash, string $column): ?string
+    {
+        $scopeKey = self::resolveCacheScopeKey($cacheScope);
+        if ($scopeKey === null) {
+            return null;
+        }
+
+        return 'dynamic_filter_' . $scopeKey . '_' . $queryHash . '_' . str_replace('.', '_', $column);
+    }
+
+    /**
+     * Resolve cache scope key based on configuration.
+     */
+    protected static function resolveCacheScopeKey(string $cacheScope): ?string
+    {
+        return match ($cacheScope) {
+            'global' => 'global',
+            'tenant' => self::resolveTenantScopeKey(),
+            default => (string) (auth()->id() ?? 'guest'),
+        };
+    }
+
+    /**
+     * Resolve tenant scope key via config or callback, if available.
+     */
+    protected static function resolveTenantScopeKey(): ?string
+    {
+        $resolver = config('filament-dynamic-filter.tenant_resolver');
+        if (is_callable($resolver)) {
+            $resolved = $resolver();
+            if ($resolved !== null && $resolved !== '') {
+                return 'tenant_' . (string) $resolved;
+            }
+        }
+
+        $tenantKey = config('filament-dynamic-filter.tenant_key');
+        if ($tenantKey !== null && $tenantKey !== '') {
+            return 'tenant_' . (string) $tenantKey;
+        }
+
+        return null;
+    }
+
+    /**
+     * Memoize the query hash for the current request.
+     */
+    protected static function getQueryHash(Builder $query): string
+    {
+        $queryId = spl_object_id($query);
+
+        if (! isset(self::$queryHashCache[$queryId])) {
+            self::$queryHashCache[$queryId] = md5($query->toSql() . serialize($query->getBindings()));
+        }
+
+        return self::$queryHashCache[$queryId];
     }
 
     /**

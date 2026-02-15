@@ -22,6 +22,8 @@ composer require sixteenhands/filament-dynamic-filter
 ## Usage
 
 ```php
+use Filament\Tables\Contracts\HasTable;
+use Illuminate\Database\Eloquent\Builder;
 use SixteenHands\FilamentDynamicFilter\DynamicFilter;
 
 public function table(Table $table): Table
@@ -58,6 +60,14 @@ public function table(Table $table): Table
                     1 => 'Active',
                     0 => 'Inactive',
                 ],
+            ),
+
+            // With a custom options query
+            DynamicFilter::make(
+                name: 'status_filter',
+                column: 'status',
+                queryColumn: 'status',
+                optionsQuery: fn (HasTable $livewire, Builder $query) => $query->whereNotNull('status')
             ),
         ]);
 }
@@ -103,7 +113,7 @@ DynamicFilter::make(
 
 ## How It Works
 
-The filter grabs the current table query (with all existing filters/scopes applied), plucks the unique values from the specified column, and uses those as select options. Results are cached for 5 minutes per user/query combination to keep things quick.
+The filter grabs the current table query (with all existing filters/scopes applied), plucks distinct values for the specified column when possible, and uses those as select options. Results are cached per column with a configurable TTL and scope.
 
 Handles Carbon dates and PHP enums automatically — dates display as `d/m/Y` but filter as `Y-m-d`, enums use their `getLabel()` method for display.
 
@@ -122,6 +132,7 @@ Handles Carbon dates and PHP enums automatically — dates display as `d/m/Y` bu
 | `panels` | ?array | Restrict to specific panel IDs |
 | `optionsMap` | ?array | Map of raw values to display labels |
 | `formatOption` | ?callable | Formatter callback: `fn ($value): array|string|null` |
+| `optionsQuery` | ?callable | Provide a custom options Builder or Collection: `fn (HasTable $livewire, Builder $query)` (distinct/limit apply to Builders) |
 
 **`DynamicFilter::relationship()`** adds:
 
@@ -130,6 +141,38 @@ Handles Carbon dates and PHP enums automatically — dates display as `d/m/Y` bu
 | `relationship` | string | Relationship name for whereHas |
 | `relationshipColumn` | string | Column within the relationship |
 | `multiple` | bool | Allow multiple selection (default: false) |
+
+It also supports all base parameters above (including `optionsQuery`).
+
+## Configuration
+
+Publish the config if you'd like to tune caching:
+
+```bash
+php artisan vendor:publish --tag="filament-dynamic-filter-config"
+```
+
+```php
+return [
+    'cache_ttl' => 300,
+    'max_options' => null,
+    'cache_scope' => 'user', // user | tenant | global
+];
+```
+
+When using `tenant` scope, provide a tenant key or resolver in your config (otherwise caching is skipped for safety):
+
+```php
+'tenant_key' => null,
+'tenant_resolver' => fn () => tenant('id'),
+```
+
+## Caching Notes
+
+- Options are cached per column using a distinct query when possible.
+- If a distinct query fails, the filter falls back to `$query->get()->pluck($column)`.
+- Exceptions do not write to cache; they return an empty options list.
+- `max_options` caps the number of options returned.
 
 ## Requirements
 
