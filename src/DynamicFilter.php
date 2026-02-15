@@ -290,8 +290,10 @@ class DynamicFilter
 
         if ($cacheTtl !== null && is_numeric($cacheTtl) && (int) $cacheTtl > 0) {
             $hashSource = $optionsSource instanceof Builder ? $optionsSource : $query;
-            $queryHash = self::getQueryHash($hashSource);
-            $cacheKey = self::buildCacheKey($cacheScope, $queryHash, $column);
+            if ($hashSource instanceof Builder) {
+                $queryHash = self::getQueryHash($hashSource);
+                $cacheKey = self::buildCacheKey($cacheScope, $queryHash, $column);
+            }
         }
 
         if ($cacheKey !== null) {
@@ -331,7 +333,7 @@ class DynamicFilter
      */
     protected static function resolveOptionValues(
         mixed $optionsSource,
-        Builder $fallbackQuery,
+        ?Builder $fallbackQuery,
         string $column,
         string $queryColumn,
         mixed $maxOptions
@@ -340,7 +342,11 @@ class DynamicFilter
             try {
                 return self::pluckDistinctValues($optionsSource, $queryColumn, $maxOptions);
             } catch (\Throwable $e) {
-                return self::pluckFromCollection($fallbackQuery->get(), $column);
+                if ($fallbackQuery instanceof Builder) {
+                    return self::pluckFromCollection($fallbackQuery->get(), $column);
+                }
+
+                return collect();
             }
         }
 
@@ -352,7 +358,11 @@ class DynamicFilter
             return collect($optionsSource);
         }
 
-        return self::pluckFromCollection($fallbackQuery->get(), $column);
+        if ($fallbackQuery instanceof Builder) {
+            return self::pluckFromCollection($fallbackQuery->get(), $column);
+        }
+
+        return collect();
     }
 
     /**
