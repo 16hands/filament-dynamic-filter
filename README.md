@@ -3,15 +3,22 @@
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/sixteenhands/filament-dynamic-filter.svg?style=flat-square)](https://packagist.org/packages/sixteenhands/filament-dynamic-filter)
 [![Total Downloads](https://img.shields.io/packagist/dt/sixteenhands/filament-dynamic-filter.svg?style=flat-square)](https://packagist.org/packages/sixteenhands/filament-dynamic-filter)
 
-Dynamic select filters for Filament tables that use the current table's records as options.
+Dynamic select filters for Filament tables. For direct columns, options come from the current table query; relationship
+filters query the related model by default.
 
 ## The Problem
 
-If you've used DataTables before, you'll remember the column header filters that automatically populated with values from the table data. Filament's built-in `SelectFilter` requires you to manually define options or query them separately from an entire table/model.
+If you've used DataTables before, you'll remember the column header filters that automatically populated with values
+from the table data. Filament's built-in `SelectFilter` requires you to manually define options or query them separately
+from an entire table/model.
 
-This becomes a real pain with relationship managers. Say you have an `Order` resource with a `LineItems` relation manager. You want to filter line items by product name, but only show products that actually exist in *this order's* line items — not every product in the database.
+This becomes a real pain with relationship managers. Say you have an `Order` resource with a `LineItems` relation
+manager. You want to filter line items by product name, but only show products that actually exist in *this order's*
+line items — not every product in the database.
 
-This package gives you filters that pull their options directly from the current table query, respecting any existing filters or scopes already applied.
+This package gives you filters that pull their options from the current table query for direct columns, respecting any
+existing filters or scopes already applied. Relationship filters default to querying the related model directly, but you
+can override this with `optionsQuery` when you need custom constraints.
 
 ## Installation
 
@@ -125,7 +132,8 @@ DynamicFilter::relationship(
 )
 ```
 
-By default, relationship filters query the related model directly (no joins) so options and search work out of the box. You can override this with `optionsQuery` if you need custom constraints:
+By default, relationship filters query the related model directly (no joins) so options and search work out of the box.
+You can override this with `optionsQuery` if you need custom constraints:
 
 ```php
 DynamicFilter::relationship(
@@ -157,9 +165,12 @@ DynamicFilter::make(
 
 ## How It Works
 
-The filter grabs the current table query (with all existing filters/scopes applied), plucks distinct values for the specified column when possible, and uses those as select options. Results are cached per column with a configurable TTL and scope.
+The filter grabs the current table query (with all existing filters/scopes applied), plucks distinct values for the
+specified column when possible, and uses those as select options. Results are cached per column with a configurable TTL
+and scope.
 
-Handles Carbon dates and PHP enums automatically — dates display as `d/m/Y` but filter as `Y-m-d`, enums use their `getLabel()` method for display.
+Handles Carbon dates and PHP enums automatically — dates display as `d/m/Y` but filter as `Y-m-d`, enums use their
+`getLabel()` method for display.
 
 ## Parameters
 
