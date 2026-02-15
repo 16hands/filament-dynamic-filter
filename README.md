@@ -84,6 +84,33 @@ DynamicFilter::multiple(
 )
 ```
 
+### Lazy Option Loading (Searchable Only)
+
+When `lazy: true` and `searchable: true`, options are empty until the user types. Search results are fetched on demand.
+
+**Large lists (recommended):**
+
+```php
+DynamicFilter::make(
+    name: 'customer_filter',
+    column: 'customer.name',
+    queryColumn: 'customers.name',
+    searchable: true,
+    lazy: true
+)
+```
+
+**Short lists (preload is fine):**
+
+```php
+DynamicFilter::make(
+    name: 'status_filter',
+    column: 'status',
+    queryColumn: 'status',
+    searchable: true
+)
+```
+
 ### Relationship Filters
 
 For filtering through relationships using `whereHas`:
@@ -95,6 +122,23 @@ DynamicFilter::relationship(
     relationship: 'supplier',
     relationshipColumn: 'name',
     multiple: true
+)
+```
+
+By default, relationship filters query the related model directly (no joins) so options and search work out of the box. You can override this with `optionsQuery` if you need custom constraints:
+
+```php
+DynamicFilter::relationship(
+    name: 'supplier_filter',
+    column: 'supplier.name',
+    relationship: 'supplier',
+    relationshipColumn: 'name',
+    optionsQuery: fn (HasTable $livewire, Builder $query) => $query
+        ->getModel()
+        ->supplier()
+        ->getRelated()
+        ->newQuery()
+        ->where('is_active', true)
 )
 ```
 
@@ -129,6 +173,7 @@ Handles Carbon dates and PHP enums automatically — dates display as `d/m/Y` bu
 | `placeholder` | ?string | Select placeholder text |
 | `label` | ?string | Filter label |
 | `searchable` | bool | Enable search in select (default: false) |
+| `lazy` | bool | Defer options until search (requires `searchable`; default: false) |
 | `panels` | ?array | Restrict to specific panel IDs |
 | `optionsMap` | ?array | Map of raw values to display labels |
 | `formatOption` | ?callable | Formatter callback: `fn ($value): array|string|null` |

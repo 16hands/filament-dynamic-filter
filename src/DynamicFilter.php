@@ -33,6 +33,7 @@ class DynamicFilter
      * @param  array|null  $optionsMap  Map of raw values to display labels
      * @param  callable|null  $formatOption  Formatter callback: fn($value): array|string|null
      * @param  callable|null  $optionsQuery  Callback to provide a Builder or Collection for options
+     * @param  bool  $lazy  Defer loading options until search (requires searchable)
      */
     public static function make(
         string $name,
@@ -44,7 +45,8 @@ class DynamicFilter
         ?array $panels = null,
         ?array $optionsMap = null,
         ?callable $formatOption = null,
-        ?callable $optionsQuery = null
+        ?callable $optionsQuery = null,
+        bool $lazy = false
     ): Filter {
         if (! self::hasAccess($panels)) {
             return self::createHiddenFilter($name);
@@ -53,16 +55,30 @@ class DynamicFilter
         $label = $label ?? ucwords(str_replace(['_', '.'], ' ', $column));
         $placeholder = $placeholder ?? "Select {$label}...";
 
+        $select = Select::make($column)
+            ->label($label)
+            ->selectablePlaceholder(false)
+            ->searchable($searchable)
+            ->placeholder($placeholder);
+
+        if ($lazy && $searchable) {
+            $select
+                ->options([])
+                ->getSearchResultsUsing(function (Select $component, HasTable $livewire, ?string $search) use ($column, $queryColumn, $optionsMap, $formatOption, $optionsQuery): array {
+                    return self::getSearchResultsOptions($livewire, $column, $queryColumn, $optionsMap, $formatOption, $optionsQuery, $search);
+                })
+                ->getOptionLabelUsing(function ($value) use ($optionsMap, $formatOption): string {
+                    return self::getOptionLabel($value, $optionsMap, $formatOption);
+                });
+        } else {
+            $select->options(function (HasTable $livewire) use ($column, $queryColumn, $optionsMap, $formatOption, $optionsQuery) {
+                return self::getCachedOptions($livewire, $column, $queryColumn, $optionsMap, $formatOption, $optionsQuery);
+            });
+        }
+
         return Filter::make($name)
             ->schema([
-                Select::make($column)
-                    ->label($label)
-                    ->options(function (HasTable $livewire) use ($column, $queryColumn, $optionsMap, $formatOption, $optionsQuery) {
-                        return self::getCachedOptions($livewire, $column, $queryColumn, $optionsMap, $formatOption, $optionsQuery);
-                    })
-                    ->selectablePlaceholder(false)
-                    ->searchable($searchable)
-                    ->placeholder($placeholder),
+                $select,
             ])
             ->query(function (Builder $query, array $data) use ($column, $queryColumn): Builder {
                 $value = data_get($data, $column);
@@ -105,7 +121,8 @@ class DynamicFilter
         ?array $panels = null,
         ?array $optionsMap = null,
         ?callable $formatOption = null,
-        ?callable $optionsQuery = null
+        ?callable $optionsQuery = null,
+        bool $lazy = false
     ): Filter {
         if (! self::hasAccess($panels)) {
             return self::createHiddenFilter($name);
@@ -114,16 +131,37 @@ class DynamicFilter
         $label = $label ?? ucwords(str_replace(['_', '.'], ' ', $column));
         $placeholder = $placeholder ?? "Select {$label}...";
 
+        $select = Select::make($column)
+            ->label($label)
+            ->multiple()
+            ->searchable($searchable)
+            ->placeholder($placeholder);
+
+        if ($lazy && $searchable) {
+            $select
+                ->options([])
+                ->getSearchResultsUsing(function (Select $component, HasTable $livewire, ?string $search) use ($column, $queryColumn, $optionsMap, $formatOption, $optionsQuery): array {
+                    return self::getSearchResultsOptions($livewire, $column, $queryColumn, $optionsMap, $formatOption, $optionsQuery, $search);
+                })
+                ->getOptionLabelsUsing(function (?array $values) use ($optionsMap, $formatOption): array {
+                    $values = self::normalizeValuesArray($values ?? []);
+                    $labels = [];
+
+                    foreach ($values as $value) {
+                        $labels[$value] = self::getOptionLabel($value, $optionsMap, $formatOption);
+                    }
+
+                    return $labels;
+                });
+        } else {
+            $select->options(function (HasTable $livewire) use ($column, $queryColumn, $optionsMap, $formatOption, $optionsQuery) {
+                return self::getCachedOptions($livewire, $column, $queryColumn, $optionsMap, $formatOption, $optionsQuery);
+            });
+        }
+
         return Filter::make($name)
             ->schema([
-                Select::make($column)
-                    ->label($label)
-                    ->options(function (HasTable $livewire) use ($column, $queryColumn, $optionsMap, $formatOption, $optionsQuery) {
-                        return self::getCachedOptions($livewire, $column, $queryColumn, $optionsMap, $formatOption, $optionsQuery);
-                    })
-                    ->multiple()
-                    ->searchable($searchable)
-                    ->placeholder($placeholder),
+                $select,
             ])
             ->query(function (Builder $query, array $data) use ($column, $queryColumn): Builder {
                 $value = data_get($data, $column);
@@ -186,7 +224,8 @@ class DynamicFilter
         bool $multiple = false,
         ?array $optionsMap = null,
         ?callable $formatOption = null,
-        ?callable $optionsQuery = null
+        ?callable $optionsQuery = null,
+        bool $lazy = false
     ): Filter {
         if (! self::hasAccess($panels)) {
             return self::createHiddenFilter($name);
@@ -195,17 +234,57 @@ class DynamicFilter
         $label = $label ?? ucwords(str_replace(['_', '.'], ' ', $column));
         $placeholder = $placeholder ?? "Select {$label}...";
 
+        $optionsQuery ??= function (HasTable $livewire, Builder $query) use ($relationship) {
+            $model = $query->getModel();
+
+            if (! method_exists($model, $relationship)) {
+                return $query;
+            }
+
+            $relationshipQuery = $model->{$relationship}();
+
+            return $relationshipQuery->getRelated()->newQuery();
+        };
+
+        $select = Select::make($column)
+            ->label($label)
+            ->searchable($searchable)
+            ->multiple($multiple)
+            ->selectablePlaceholder($multiple)
+            ->placeholder($placeholder);
+
+        if ($lazy && $searchable) {
+            $select
+                ->options([])
+                ->getSearchResultsUsing(function (Select $component, HasTable $livewire, ?string $search) use ($column, $relationshipColumn, $optionsMap, $formatOption, $optionsQuery): array {
+                    return self::getSearchResultsOptions($livewire, $column, $relationshipColumn, $optionsMap, $formatOption, $optionsQuery, $search);
+                });
+
+            if ($multiple) {
+                $select->getOptionLabelsUsing(function (?array $values) use ($optionsMap, $formatOption): array {
+                    $values = self::normalizeValuesArray($values ?? []);
+                    $labels = [];
+
+                    foreach ($values as $value) {
+                        $labels[$value] = self::getOptionLabel($value, $optionsMap, $formatOption);
+                    }
+
+                    return $labels;
+                });
+            } else {
+                $select->getOptionLabelUsing(function ($value) use ($optionsMap, $formatOption): string {
+                    return self::getOptionLabel($value, $optionsMap, $formatOption);
+                });
+            }
+        } else {
+            $select->options(function (HasTable $livewire) use ($column, $relationshipColumn, $optionsMap, $formatOption, $optionsQuery) {
+                return self::getCachedOptions($livewire, $column, $relationshipColumn, $optionsMap, $formatOption, $optionsQuery);
+            });
+        }
+
         return Filter::make($name)
             ->schema([
-                Select::make($column)
-                    ->label($label)
-                    ->options(function (HasTable $livewire) use ($column, $relationshipColumn, $optionsMap, $formatOption, $optionsQuery) {
-                        return self::getCachedOptions($livewire, $column, $relationshipColumn, $optionsMap, $formatOption, $optionsQuery);
-                    })
-                    ->searchable($searchable)
-                    ->multiple($multiple)
-                    ->selectablePlaceholder($multiple)
-                    ->placeholder($placeholder),
+                $select,
             ])
             ->query(function (Builder $query, array $data) use ($column, $relationship, $relationshipColumn): Builder {
                 $value = data_get($data, $column);
@@ -274,13 +353,7 @@ class DynamicFilter
         ?callable $formatOption = null,
         ?callable $optionsQuery = null
     ): array {
-        $table = $livewire->getTable();
-        $query = $table->getQuery();
-        $optionsSource = $query;
-
-        if ($optionsQuery) {
-            $optionsSource = $optionsQuery($livewire, $query);
-        }
+        [$optionsSource, $query] = self::resolveOptionsSource($livewire, $optionsQuery);
 
         $cacheTtl = config('filament-dynamic-filter.cache_ttl', 300);
         $maxOptions = config('filament-dynamic-filter.max_options');
@@ -304,17 +377,8 @@ class DynamicFilter
         }
 
         try {
-            $values = self::resolveOptionValues($optionsSource, $query, $column, $queryColumn, $maxOptions);
-
-            $options = $values
-                ->filter(fn ($value) => self::hasValue($value))
-                ->unique()
-                ->sort()
-                ->when(is_int($maxOptions) && $maxOptions > 0, fn (Collection $collection) => $collection->take($maxOptions))
-                ->mapWithKeys(function ($value) use ($optionsMap, $formatOption) {
-                    return self::formatOption($value, $optionsMap, $formatOption);
-                })
-                ->toArray();
+            $values = self::getSearchResults($optionsSource, $query, $column, $queryColumn, $maxOptions);
+            $options = self::buildOptions($values, $optionsMap, $formatOption, $maxOptions);
 
             if ($cacheKey !== null) {
                 Cache::put($cacheKey, $options, (int) $cacheTtl);
@@ -329,6 +393,174 @@ class DynamicFilter
     }
 
     /**
+     * Get search results options for lazy selects.
+     */
+    protected static function getSearchResultsOptions(
+        HasTable $livewire,
+        string $column,
+        string $queryColumn,
+        ?array $optionsMap = null,
+        ?callable $formatOption = null,
+        ?callable $optionsQuery = null,
+        ?string $search = null
+    ): array {
+        if ($search === null || trim($search) === '') {
+            return [];
+        }
+
+        [$optionsSource, $query] = self::resolveOptionsSource($livewire, $optionsQuery);
+
+        $maxOptions = config('filament-dynamic-filter.max_options');
+        $maxOptions = is_numeric($maxOptions) ? (int) $maxOptions : null;
+
+        try {
+            $values = self::getSearchResults($optionsSource, $query, $column, $queryColumn, $maxOptions, $search);
+
+            return self::buildOptions($values, $optionsMap, $formatOption, $maxOptions);
+        } catch (\Throwable $e) {
+            \Log::error("DynamicFilter search error for column {$column}: " . $e->getMessage());
+
+            return [];
+        }
+    }
+
+    /**
+     * Resolve the base query and option source.
+     *
+     * @return array{0: mixed, 1: Builder}
+     */
+    protected static function resolveOptionsSource(HasTable $livewire, ?callable $optionsQuery = null): array
+    {
+        $table = $livewire->getTable();
+        $query = $table->getQuery();
+        $optionsSource = $query;
+
+        if ($optionsQuery) {
+            $optionsSource = $optionsQuery($livewire, $query);
+        }
+
+        return [$optionsSource, $query];
+    }
+
+    /**
+     * Build formatted options from a collection of values.
+     */
+    protected static function buildOptions(
+        Collection $values,
+        ?array $optionsMap = null,
+        ?callable $formatOption = null,
+        mixed $maxOptions = null
+    ): array {
+        return $values
+            ->filter(fn ($value) => self::hasValue($value))
+            ->unique()
+            ->sort()
+            ->when(is_int($maxOptions) && $maxOptions > 0, fn (Collection $collection) => $collection->take($maxOptions))
+            ->mapWithKeys(function ($value) use ($optionsMap, $formatOption) {
+                return self::formatOption($value, $optionsMap, $formatOption);
+            })
+            ->toArray();
+    }
+
+    /**
+     * Get distinct option values with an optional search filter.
+     */
+    protected static function getSearchResults(
+        mixed $optionsSource,
+        ?Builder $fallbackQuery,
+        string $column,
+        string $queryColumn,
+        mixed $maxOptions,
+        ?string $search = null
+    ): Collection {
+        $search = is_string($search) ? trim($search) : null;
+
+        if ($optionsSource instanceof Builder) {
+            try {
+                return self::pluckDistinctValues($optionsSource, $queryColumn, $maxOptions, $search);
+            } catch (\Throwable $e) {
+                if ($fallbackQuery instanceof Builder) {
+                    return self::filterValuesBySearch(self::pluckFromCollection($fallbackQuery->get(), $column), $search);
+                }
+
+                return collect();
+            }
+        }
+
+        if ($optionsSource instanceof Collection) {
+            return self::filterValuesBySearch(self::pluckFromCollection($optionsSource, $column), $search);
+        }
+
+        if (is_array($optionsSource)) {
+            return self::filterValuesBySearch(collect($optionsSource), $search);
+        }
+
+        if ($fallbackQuery instanceof Builder) {
+            return self::filterValuesBySearch(self::pluckFromCollection($fallbackQuery->get(), $column), $search);
+        }
+
+        return collect();
+    }
+
+    /**
+     * Apply a simple search filter to a collection of values.
+     */
+    protected static function filterValuesBySearch(Collection $values, ?string $search): Collection
+    {
+        if ($search === null || $search === '') {
+            return $values;
+        }
+
+        $needle = strtolower($search);
+
+        return $values->filter(function ($value) use ($needle): bool {
+            if (! self::hasValue($value)) {
+                return false;
+            }
+
+            $stringValue = self::stringifyValueForSearch($value);
+
+            if ($stringValue === '') {
+                return false;
+            }
+
+            return str_contains(strtolower($stringValue), $needle);
+        });
+    }
+
+    /**
+     * Normalize values to a string for searching.
+     */
+    protected static function stringifyValueForSearch(mixed $value): string
+    {
+        if (is_string($value)) {
+            return $value;
+        }
+
+        if (is_scalar($value)) {
+            return (string) $value;
+        }
+
+        if (is_object($value)) {
+            if ($value instanceof \Illuminate\Support\Carbon) {
+                return $value->format('Y-m-d');
+            }
+
+            if (enum_exists(get_class($value))) {
+                return (string) $value->value;
+            }
+
+            if (method_exists($value, '__toString')) {
+                return (string) $value;
+            }
+        }
+
+        $encoded = json_encode($value);
+
+        return $encoded !== false ? $encoded : '';
+    }
+
+    /**
      * Resolve option values using a Builder or Collection source.
      */
     protected static function resolveOptionValues(
@@ -338,40 +570,26 @@ class DynamicFilter
         string $queryColumn,
         mixed $maxOptions
     ): Collection {
-        if ($optionsSource instanceof Builder) {
-            try {
-                return self::pluckDistinctValues($optionsSource, $queryColumn, $maxOptions);
-            } catch (\Throwable $e) {
-                if ($fallbackQuery instanceof Builder) {
-                    return self::pluckFromCollection($fallbackQuery->get(), $column);
-                }
-
-                return collect();
-            }
-        }
-
-        if ($optionsSource instanceof Collection) {
-            return self::pluckFromCollection($optionsSource, $column);
-        }
-
-        if (is_array($optionsSource)) {
-            return collect($optionsSource);
-        }
-
-        if ($fallbackQuery instanceof Builder) {
-            return self::pluckFromCollection($fallbackQuery->get(), $column);
-        }
-
-        return collect();
+        return self::getSearchResults($optionsSource, $fallbackQuery, $column, $queryColumn, $maxOptions);
     }
 
     /**
      * Pluck distinct values from a query builder for a specific column.
      */
-    protected static function pluckDistinctValues(Builder $query, string $queryColumn, mixed $maxOptions): Collection
+    protected static function pluckDistinctValues(
+        Builder $query,
+        string $queryColumn,
+        mixed $maxOptions,
+        ?string $search = null
+    ): Collection
     {
         $distinctQuery = clone $query;
         $distinctQuery->reorder();
+
+        if ($search !== null && $search !== '') {
+            $distinctQuery->where($queryColumn, 'like', '%' . $search . '%');
+        }
+
         $distinctQuery->select($queryColumn)
             ->distinct()
             ->orderBy($queryColumn);
