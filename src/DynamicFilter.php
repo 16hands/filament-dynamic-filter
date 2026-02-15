@@ -582,8 +582,7 @@ class DynamicFilter
         string $queryColumn,
         mixed $maxOptions,
         ?string $search = null
-    ): Collection
-    {
+    ): Collection {
         $distinctQuery = clone $query;
         $distinctQuery->reorder();
 
