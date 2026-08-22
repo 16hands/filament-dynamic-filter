@@ -6,6 +6,7 @@ use Filament\Forms\Components\Select;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Filters\Filter;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 
@@ -543,7 +544,7 @@ class DynamicFilter
         }
 
         if (is_object($value)) {
-            if ($value instanceof \Illuminate\Support\Carbon) {
+            if ($value instanceof Carbon) {
                 return $value->format('Y-m-d');
             }
 
@@ -710,7 +711,7 @@ class DynamicFilter
         }
 
         // Handle date objects
-        if (is_object($value) && $value instanceof \Illuminate\Support\Carbon) {
+        if (is_object($value) && $value instanceof Carbon) {
             return [$value->format('Y-m-d') => $value->format('d/m/Y')];
         }
 
