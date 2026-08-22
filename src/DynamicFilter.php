@@ -54,7 +54,7 @@ class DynamicFilter
         }
 
         $label = $label ?? ucwords(str_replace(['_', '.'], ' ', $column));
-        $placeholder = $placeholder ?? "Select {$label}...";
+        $placeholder = $placeholder ?? config('filament-dynamic-filter.placeholder') ?? "Select {$label}...";
 
         $select = Select::make($column)
             ->label($label)
@@ -130,7 +130,7 @@ class DynamicFilter
         }
 
         $label = $label ?? ucwords(str_replace(['_', '.'], ' ', $column));
-        $placeholder = $placeholder ?? "Select {$label}...";
+        $placeholder = $placeholder ?? config('filament-dynamic-filter.placeholder') ?? "Select {$label}...";
 
         $select = Select::make($column)
             ->label($label)
@@ -233,7 +233,7 @@ class DynamicFilter
         }
 
         $label = $label ?? ucwords(str_replace(['_', '.'], ' ', $column));
-        $placeholder = $placeholder ?? "Select {$label}...";
+        $placeholder = $placeholder ?? config('filament-dynamic-filter.placeholder') ?? "Select {$label}...";
 
         $optionsQuery ??= function (HasTable $livewire, Builder $query) use ($relationship) {
             $model = $query->getModel();
