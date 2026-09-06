@@ -57,9 +57,15 @@ class DynamicFilter
         $label = $label ?? ucwords(str_replace(['_', '.'], ' ', $column));
         $placeholder = $placeholder ?? config('filament-dynamic-filter.placeholder') ?? "Select {$label}...";
 
+        // selectablePlaceholder(TRUE) — deliberately. With it false Filament
+        // emits no empty <option>, so an unset filter renders its FIRST
+        // option and the list reads as already filtered by it (Carl,
+        // 2026-09-06: "make the app and type filters 'Select...' not the 1st
+        // item as it look like that whats filtered"). Selectable also gives
+        // the operator the obvious way back to unfiltered.
         $select = Select::make($column)
             ->label($label)
-            ->selectablePlaceholder(false)
+            ->selectablePlaceholder(true)
             ->searchable($searchable)
             ->placeholder($placeholder);
 
