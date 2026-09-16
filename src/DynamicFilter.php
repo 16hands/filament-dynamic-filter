@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 
 /**
  * DynamicFilter - Dynamic table filters for Filament with caching, indicators and panel access control
@@ -21,6 +22,20 @@ class DynamicFilter
      * @var array<int, string>
      */
     protected static array $queryHashCache = [];
+
+    /**
+     * Macron vowels folded onto their plain form, so option matching agrees with
+     * a *_unicode_ci database collation instead of being stricter than it.
+     *
+     * @var array<string, string>
+     */
+    protected const MACRON_REPLACEMENTS = [
+        'ā' => 'a', 'Ā' => 'A',
+        'ē' => 'e', 'Ē' => 'E',
+        'ī' => 'i', 'Ī' => 'I',
+        'ō' => 'o', 'Ō' => 'O',
+        'ū' => 'u', 'Ū' => 'U',
+    ];
 
     /**
      * Create a dynamic filter with caching and proper indicators
@@ -519,7 +534,11 @@ class DynamicFilter
             return $values;
         }
 
-        $needle = strtolower($search);
+        $needle = self::normalizeForSearch($search);
+
+        if ($needle === '') {
+            return $values;
+        }
 
         return $values->filter(function ($value) use ($needle): bool {
             if (! self::hasValue($value)) {
@@ -532,8 +551,17 @@ class DynamicFilter
                 return false;
             }
 
-            return str_contains(strtolower($stringValue), $needle);
+            return str_contains(self::normalizeForSearch($stringValue), $needle);
         });
+    }
+
+    /**
+     * Fold case and te reo Māori macrons away, so that "Maori" finds "Māori" and
+     * "Ngāi" finds "Ngai" — matching what a *_unicode_ci collation does in SQL.
+     */
+    protected static function normalizeForSearch(string $text): string
+    {
+        return Str::lower(Str::ascii(strtr($text, self::MACRON_REPLACEMENTS)));
     }
 
     /**
