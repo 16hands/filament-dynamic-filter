@@ -2,6 +2,10 @@
 
 All notable changes to `filament-dynamic-filter` will be documented in this file.
 
+## v0.2.3 - 2026-10-01
+
+- `fixedOptions` on `make()`, `multiple()` and `relationship()`: the caller supplies an ordered value => label array, shown as given (not sorted, not cached)
+
 ## 1.1.0 - 2026-02-15
 
 - cache per column with distinct values only

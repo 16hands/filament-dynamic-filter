@@ -2,6 +2,7 @@
 
 namespace SixteenHands\FilamentDynamicFilter;
 
+use Closure;
 use Filament\Forms\Components\Select;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Filters\Filter;
@@ -51,6 +52,7 @@ class DynamicFilter
      * @param  callable|null  $formatOption  Formatter callback: fn($value): array|string|null
      * @param  callable|null  $optionsQuery  Callback to provide a Builder or Collection for options
      * @param  bool  $lazy  Defer loading options until search (requires searchable)
+     * @param  Closure|null  $fixedOptions  Supplies the options as an ordered value => label array, shown as given (not sorted, not cached)
      */
     public static function make(
         string $name,
@@ -63,7 +65,8 @@ class DynamicFilter
         ?array $optionsMap = null,
         ?callable $formatOption = null,
         ?callable $optionsQuery = null,
-        bool $lazy = false
+        bool $lazy = false,
+        ?Closure $fixedOptions = null
     ): Filter {
         if (! self::hasAccess($panels)) {
             return self::createHiddenFilter($name);
@@ -71,6 +74,10 @@ class DynamicFilter
 
         $label = $label ?? ucwords(str_replace(['_', '.'], ' ', $column));
         $placeholder = $placeholder ?? config('filament-dynamic-filter.placeholder') ?? "Select {$label}...";
+
+        if ($fixedOptions !== null) {
+            $formatOption = self::fixedOptionFormatter($fixedOptions);
+        }
 
         // selectablePlaceholder(TRUE) — deliberately. With it false Filament
         // emits no empty <option>, so an unset filter renders its FIRST
@@ -84,7 +91,9 @@ class DynamicFilter
             ->searchable($searchable)
             ->placeholder($placeholder);
 
-        if ($lazy && $searchable) {
+        if ($fixedOptions !== null) {
+            $select->options($fixedOptions);
+        } elseif ($lazy && $searchable) {
             $select
                 ->options([])
                 ->getSearchResultsUsing(function (Select $component, HasTable $livewire, ?string $search) use ($column, $queryColumn, $optionsMap, $formatOption, $optionsQuery): array {
@@ -145,7 +154,8 @@ class DynamicFilter
         ?array $optionsMap = null,
         ?callable $formatOption = null,
         ?callable $optionsQuery = null,
-        bool $lazy = false
+        bool $lazy = false,
+        ?Closure $fixedOptions = null
     ): Filter {
         if (! self::hasAccess($panels)) {
             return self::createHiddenFilter($name);
@@ -154,13 +164,19 @@ class DynamicFilter
         $label = $label ?? ucwords(str_replace(['_', '.'], ' ', $column));
         $placeholder = $placeholder ?? config('filament-dynamic-filter.placeholder') ?? "Select {$label}...";
 
+        if ($fixedOptions !== null) {
+            $formatOption = self::fixedOptionFormatter($fixedOptions);
+        }
+
         $select = Select::make($column)
             ->label($label)
             ->multiple()
             ->searchable($searchable)
             ->placeholder($placeholder);
 
-        if ($lazy && $searchable) {
+        if ($fixedOptions !== null) {
+            $select->options($fixedOptions);
+        } elseif ($lazy && $searchable) {
             $select
                 ->options([])
                 ->getSearchResultsUsing(function (Select $component, HasTable $livewire, ?string $search) use ($column, $queryColumn, $optionsMap, $formatOption, $optionsQuery): array {
@@ -248,7 +264,8 @@ class DynamicFilter
         ?array $optionsMap = null,
         ?callable $formatOption = null,
         ?callable $optionsQuery = null,
-        bool $lazy = false
+        bool $lazy = false,
+        ?Closure $fixedOptions = null
     ): Filter {
         if (! self::hasAccess($panels)) {
             return self::createHiddenFilter($name);
@@ -256,6 +273,10 @@ class DynamicFilter
 
         $label = $label ?? ucwords(str_replace(['_', '.'], ' ', $column));
         $placeholder = $placeholder ?? config('filament-dynamic-filter.placeholder') ?? "Select {$label}...";
+
+        if ($fixedOptions !== null) {
+            $formatOption = self::fixedOptionFormatter($fixedOptions);
+        }
 
         $optionsQuery ??= function (HasTable $livewire, Builder $query) use ($relationship) {
             $model = $query->getModel();
@@ -276,7 +297,9 @@ class DynamicFilter
             ->selectablePlaceholder($multiple)
             ->placeholder($placeholder);
 
-        if ($lazy && $searchable) {
+        if ($fixedOptions !== null) {
+            $select->options($fixedOptions);
+        } elseif ($lazy && $searchable) {
             $select
                 ->options([])
                 ->getSearchResultsUsing(function (Select $component, HasTable $livewire, ?string $search) use ($column, $relationshipColumn, $optionsMap, $formatOption, $optionsQuery): array {
@@ -796,6 +819,18 @@ class DynamicFilter
     /**
      * Normalize formatter output into a [value => label] pair.
      */
+    /**
+     * Label lookups for a filter whose options the caller supplies in a fixed order.
+     */
+    protected static function fixedOptionFormatter(Closure $fixedOptions): Closure
+    {
+        return function (mixed $value) use ($fixedOptions): array {
+            $fixedLabels = $fixedOptions();
+
+            return [$value => $fixedLabels[$value] ?? (string) $value];
+        };
+    }
+
     protected static function normalizeFormattedOption(mixed $value, mixed $formatted): array
     {
         if (is_array($formatted)) {
